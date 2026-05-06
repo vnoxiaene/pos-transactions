@@ -1,9 +1,41 @@
+# Maven
 target/
+*/target/
+pom.xml.tag
+pom.xml.releaseBackup
+pom.xml.versionsBackup
+pom.xml.next
+release.properties
+dependency-reduced-pom.xml
+.flattened-pom.xml
+
+# Java
 *.class
 *.jar
+*.war
+*.nar
+*.ear
+
+# IDEs
 .DS_Store
 .idea/
 *.iml
+*.iws
+*.ipr
 .settings/
 .classpath
 .project
+.c9/
+*.launch
+.vscode/
+*.code-workspace
+out/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build
+.gradle/
+build/
+.mvn/
