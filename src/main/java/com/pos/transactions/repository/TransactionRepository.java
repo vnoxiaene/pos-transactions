@@ -14,7 +14,4 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
     Optional<Transaction> findByTransactionId(String transactionId);
 
     Optional<Transaction> findByTerminalIdAndNsu(String terminalId, String nsu);
-
-    @Query("SELECT t FROM Transaction t WHERE t.terminalId = :terminalId AND t.nsu = :nsu")
-    Optional<Transaction> findByTerminalAndNsu(String terminalId, String nsu);
 }
