@@ -1,0 +1,39 @@
+spring:
+  datasource:
+    url: jdbc:h2:mem:testdb;DB_CLOSE_DELAY=-1;MODE=PostgreSQL;NON_KEYWORDS=VALUE
+    username: sa
+    password:
+    driver-class-name: org.h2.Driver
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    database-platform: org.hibernate.dialect.H2Dialect
+    show-sql: true
+  flyway:
+    enabled: false
+
+security:
+  hmac:
+    secret: test-secret-key-for-testing-only
+    enabled: false
+
+resilience4j:
+  circuitbreaker:
+    instances:
+      externalPaymentApi:
+        slidingWindowSize: 10
+        minimumNumberOfCalls: 5
+        failureRateThreshold: 50
+        waitDurationInOpenState: 5s
+  retry:
+    instances:
+      externalPaymentApi:
+        maxAttempts: 1
+  bulkhead:
+    instances:
+      externalPaymentApi:
+        maxConcurrentCalls: 100
+  timelimiter:
+    instances:
+      externalPaymentApi:
+        timeoutDuration: 10s
