@@ -38,8 +38,4 @@ resilience4j:
     instances:
       externalPaymentApi:
         maxConcurrentCalls: 100
-  timelimiter:
-    instances:
-      externalPaymentApi:
-        timeoutDuration: 10s
 

@@ -2,7 +2,7 @@ package com.pos.transactions.controller;
 
 import com.pos.transactions.dto.ErrorResponse;
 import com.pos.transactions.exception.CircuitBreakerOpenException;
-import com.pos.transactions.exception.HmacValidationException;
+import com.pos.transactions.exception.InvalidRequestException;
 import com.pos.transactions.exception.InvalidTransactionStateException;
 import com.pos.transactions.exception.TransactionNotFoundException;
 import lombok.extern.slf4j.Slf4j;
@@ -42,11 +42,11 @@ public class GlobalExceptionHandler {
                 .body(buildError(HttpStatus.SERVICE_UNAVAILABLE, "Serviço temporariamente indisponível", ex.getMessage()));
     }
 
-    @ExceptionHandler(HmacValidationException.class)
-    public ResponseEntity<ErrorResponse> handleHmac(HmacValidationException ex) {
-        log.warn("[SECURITY] Assinatura HMAC inválida: {}", ex.getMessage());
-        return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                .body(buildError(HttpStatus.UNAUTHORIZED, "Assinatura inválida", ex.getMessage()));
+    @ExceptionHandler(InvalidRequestException.class)
+    public ResponseEntity<ErrorResponse> handleInvalidRequest(InvalidRequestException ex) {
+        log.warn("[ERROR] Requisição inválida: {}", ex.getMessage());
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(buildError(HttpStatus.BAD_REQUEST, "Requisição inválida", ex.getMessage()));
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)

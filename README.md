@@ -322,12 +322,12 @@ sequenceDiagram
     POS->>HF: POST /authorize\nX-Timestamp: 1715000000\nX-Signature: assinatura-errada
     HF->>HF: Recomputa HMAC(secret, timestamp.body)
     HF->>HF: Comparação: hash calculado ≠ X-Signature
-    HF-->>POS: 401 Unauthorized\n{"error":"Invalid HMAC signature"}
+    HF-->>POS: 401 Unauthorized\n{"status":401,"error":"Não autorizado","message":"Assinatura HMAC inválida"}
 
     Note over POS,HF: Cenário B — Timestamp expirado (replay attack)
     POS->>HF: POST /authorize\nX-Timestamp: 1700000000 (> 5 min atrás)\nX-Signature: assinatura-válida-mas-antiga
     HF->>HF: |now - X-Timestamp| > 300s → rejeitado
-    HF-->>POS: 401 Unauthorized\n{"error":"Timestamp out of valid window"}
+    HF-->>POS: 401 Unauthorized\n{"status":401,"error":"Não autorizado","message":"Timestamp inválido ou expirado"}
 
     Note over POS,API: Cenário C — Requisição legítima
     POS->>HF: POST /authorize\nX-Timestamp: agora\nX-Signature: HMAC(secret, timestamp.body)
@@ -652,20 +652,22 @@ Toda comunicação com o `external-payment-mock` passa por 4 camadas de proteç�
 graph LR
     EPS["🔄 ExternalPaymentServiceImpl"]
 
-    subgraph resilience["Resilience4j — camadas em ordem de execução"]
+    subgraph resilience["Resiliência — camadas em ordem de execução"]
         direction LR
         BH["Bulkhead\n(≤10 concorrentes)"]
         CB["Circuit Breaker\n(50% falhas → OPEN)"]
         RT["Retry\n(3x, backoff exp.)"]
-        TL["TimeLimiter\n(3s timeout)"]
-        BH --> CB --> RT --> TL
+        TO["HTTP Timeout\n(connect + read: 3s)"]
+        BH --> CB --> RT --> TO
     end
 
     MOCK["🏦 external-payment-mock"]
 
     EPS --> BH
-    TL --> MOCK
+    TO --> MOCK
 ```
+
+> **Nota sobre Timeout:** O timeout é aplicado diretamente no `SimpleClientHttpRequestFactory` do `RestClient` (connect + read: 3 s), garantindo que chamadas síncronas nunca fiquem penduradas indefinidamente. Esta abordagem é equivalente ao `TimeLimiter` do Resilience4j e não exige refatoração para `CompletableFuture`.
 
 ### Circuit Breaker
 
@@ -697,11 +699,13 @@ maxConcurrentCalls: 10    # Máximo simultâneo ao mock
 maxWaitDuration: 100ms    # Tempo máximo aguardando slot
 ```
 
-### TimeLimiter
+### Timeout HTTP
 
 ```yaml
-timeoutDuration: 3s       # Máximo por chamada ao mock
+external.payment.timeout-ms: 3000   # connect + read timeout (ms) no HttpClient
 ```
+
+O timeout é configurado via `SimpleClientHttpRequestFactory` no `RestClient`, aplicando-se tanto à conexão TCP quanto à leitura da resposta. Chamadas que excedam 3 s lançam `ResourceAccessException`, que é registrada pelo Circuit Breaker e elegível para Retry.
 
 ---
 
