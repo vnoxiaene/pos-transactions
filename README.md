@@ -9,15 +9,16 @@ API HTTP cloud-native para processamento de transações POS (Point of Sale), co
 1. [Arquitetura de Microserviços](#1-arquitetura-de-microserviços)
 2. [Serviços do Docker Compose](#2-serviços-do-docker-compose)
 3. [Endpoints da API](#3-endpoints-da-api)
-4. [Critérios de Aceite — Passo a Passo](#4-critérios-de-aceite--passo-a-passo)
-5. [Segurança — HMAC SHA-256](#5-segurança--hmac-sha-256)
-6. [Idempotência Distribuída](#6-idempotência-distribuída)
-7. [Resiliência — Anti-Cascade](#7-resiliência--anti-cascade)
-8. [Observabilidade](#8-observabilidade)
-9. [Como Executar](#9-como-executar)
-10. [Testes](#10-testes)
-11. [Collection Postman](#11-collection-postman)
-12. [Estrutura do Projeto](#12-estrutura-do-projeto)
+4. [Diagramas de Sequência — Fluxos Principais](#4-diagramas-de-sequência--fluxos-principais)
+5. [Critérios de Aceite — Passo a Passo](#5-critérios-de-aceite--passo-a-passo)
+6. [Segurança — HMAC SHA-256](#6-segurança--hmac-sha-256)
+7. [Idempotência Distribuída](#7-idempotência-distribuída)
+8. [Resiliência — Anti-Cascade](#8-resiliência--anti-cascade)
+9. [Observabilidade](#9-observabilidade)
+10. [Como Executar](#10-como-executar)
+11. [Testes](#11-testes)
+12. [Collection Postman](#12-collection-postman)
+13. [Estrutura do Projeto](#13-estrutura-do-projeto)
 
 ---
 
@@ -25,51 +26,36 @@ API HTTP cloud-native para processamento de transações POS (Point of Sale), co
 
 O sistema é composto por **dois microserviços independentes** mais o banco de dados:
 
-```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                           POS / Client                                  │
-│                 (X-Signature + X-Timestamp + body)                      │
-└─────────────────────────────┬───────────────────────────────────────────┘
-                              │ HTTP  :8080
-                              ▼
-┌─────────────────────────────────────────────────────────────────────────┐
-│              Microserviço 1: pos-transactions (porta 8080)               │
-│                                                                          │
-│  ┌──────────────────┐  ┌────────────────┐  ┌──────────────────────────┐ │
-│  │  HMAC Filter     │  │  Correlation   │  │   TransactionController  │ │
-│  │  (X-Signature    │─▶│  ID Filter     │─▶│   /v1/pos/transactions/  │ │
-│  │   X-Timestamp)   │  │  (MDC + OTel)  │  │   authorize|confirm|void │ │
-│  └──────────────────┘  └────────────────┘  └────────────┬─────────────┘ │
-│                                                          │               │
-│                                              ┌───────────▼─────────────┐ │
-│                                              │   TransactionService     │ │
-│                                              │   (lógica de negócio,    │ │
-│                                              │    idempotência via DB)  │ │
-│                                              └───────────┬─────────────┘ │
-│                                                          │               │
-│  ┌───────────────────────────────────────────────────────▼─────────────┐ │
-│  │  ExternalPaymentServiceImpl — RestClient + Resilience4j             │ │
-│  │  Circuit Breaker | Retry (backoff exp.) | Bulkhead | TimeLimiter    │ │
-│  └───────────────────────────────┬─────────────────────────────────────┘ │
-│                                  │                                       │
-└──────────────────────────────────┼───────────────────────────────────────┘
-                                   │
-              HTTP :8081            │              TCP :5432
- ┌─────────────────────────────────▼──┐   ┌──────────────────────────────┐
- │  Microserviço 2: external-payment  │   │  PostgreSQL 16               │
- │  mock (porta 8081)                 │   │  transactions table          │
- │                                    │   │  UNIQUE (terminal_id, nsu)   │
- │  POST /api/payment/authorize       │   └──────────────────────────────┘
- │  POST /api/payment/confirm         │
- │  POST /api/payment/void            │
- └────────────────────────────────────┘
+```mermaid
+graph TB
+    Client["🖥️ POS / Client\n(X-Signature + X-Timestamp + body)"]
+
+    subgraph svc1["Microserviço 1 — pos-transactions :8080"]
+        direction TB
+        HMAC["🔒 HMAC Filter\n(valida X-Signature + X-Timestamp)"]
+        CorrId["🔗 Correlation ID Filter\n(MDC + OpenTelemetry)"]
+        Controller["🎮 TransactionController\nPOST /v1/pos/transactions/{authorize,confirm,void}"]
+        Service["⚙️ TransactionService\n(idempotência via DB)"]
+        ExtClient["🔄 ExternalPaymentServiceImpl\nRestClient + Resilience4j\n(CB · Retry · Bulkhead · TimeLimiter)"]
+        HMAC --> CorrId --> Controller --> Service --> ExtClient
+    end
+
+    subgraph svc2["Microserviço 2 — external-payment-mock :8081"]
+        MockCtrl["🏦 PaymentMockController\nPOST /api/payment/{authorize,confirm,void}"]
+    end
+
+    DB[("🗄️ PostgreSQL :5432\ntransactions\nUNIQUE (terminal_id, nsu)")]
+
+    Client -->|"HTTP :8080\n(HMAC headers)"| HMAC
+    Service <-->|"read / write"| DB
+    ExtClient -->|"HTTP :8081"| MockCtrl
 ```
 
 ### Responsabilidades
 
 | Microserviço | Porta | Responsabilidade |
 |---|---|---|
-| **pos-transactions** | 8080 | Orquestrador: recebe POS, aplica idempotência/HMAC, persiste, chama mock |
+| **pos-transactions** | 8080 | Orquestrador: recebe POS, valida HMAC, aplica idempotência, persiste e chama mock |
 | **external-payment-mock** | 8081 | Simula a adquirente/processadora real (Cielo, Rede, Stone etc.) |
 | **postgres** | 5432 | Persistência de transações com controle de unicidade |
 
@@ -77,20 +63,23 @@ O sistema é composto por **dois microserviços independentes** mais o banco de 
 
 ## 2. Serviços do Docker Compose
 
+Ordem de inicialização garantida por `healthcheck` + `depends_on`:
+
+```mermaid
+graph LR
+    PG[("🗄️ postgres\nhealthy")]
+    Mock["🏦 external-payment-mock\nhealthy"]
+    App["⚙️ pos-transactions\nhealthy"]
+
+    PG -->|"service_healthy"| App
+    Mock -->|"service_healthy"| App
+```
+
 ```yaml
 services:
   postgres:               # Banco de dados
   external-payment-mock:  # Mock da API externa (microserviço independente)
   pos-transactions:       # API principal (depende dos dois acima)
-```
-
-Ordem de inicialização garantida via `healthcheck` + `depends_on`:
-
-```
-postgres (healthy) ──┐
-                      ├──▶ pos-transactions (healthy)
-external-payment-mock ┘
-(healthy)
 ```
 
 ---
@@ -127,6 +116,8 @@ X-Signature: <hmac-sha256>
 ```http
 POST /v1/pos/transactions/confirm
 Content-Type: application/json
+X-Timestamp: 1715000000
+X-Signature: <hmac-sha256>
 
 { "transactionId": "A1B2C3D4E5F6..." }
 ```
@@ -138,6 +129,8 @@ Content-Type: application/json
 ```http
 POST /v1/pos/transactions/void
 Content-Type: application/json
+X-Timestamp: 1715000000
+X-Signature: <hmac-sha256>
 ```
 
 **Forma A — por transactionId:**
@@ -164,7 +157,247 @@ Content-Type: application/json
 
 ---
 
-## 4. Critérios de Aceite — Passo a Passo
+## 4. Diagramas de Sequência — Fluxos Principais
+
+### 4.1 Autorizar — Transação Nova (caminho feliz)
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor POS as 🖥️ POS / Client
+    participant HF as 🔒 HMAC Filter
+    participant CF as 🔗 CorrelationId Filter
+    participant TC as 🎮 TransactionController
+    participant TS as ⚙️ TransactionService
+    participant DB as 🗄️ PostgreSQL
+    participant EPS as 🔄 ExternalPaymentServiceImpl
+    participant MOCK as 🏦 external-payment-mock
+
+    POS->>HF: POST /v1/pos/transactions/authorize\nX-Timestamp + X-Signature + body
+    HF->>HF: Valida HMAC-SHA256\nVerifica janela de 5 min
+    HF->>CF: Passa requisição
+    CF->>CF: Gera / propaga X-Correlation-Id (MDC)
+    CF->>TC: Requisição autenticada
+    TC->>TS: authorize(nsu, terminalId, amount)
+    TS->>DB: SELECT por (terminalId, nsu)
+    DB-->>TS: NOT FOUND
+    TS->>EPS: authorize(transactionId, terminalId, nsu, amount)
+    EPS->>MOCK: POST /api/payment/authorize
+    MOCK-->>EPS: 200 OK {"status":"AUTHORIZED"}
+    EPS-->>TS: Sucesso
+    TS->>DB: INSERT Transaction (status=AUTHORIZED)
+    DB-->>TS: Saved
+    TS-->>TC: AuthorizeResponse
+    TC-->>POS: 200 OK {transactionId, nsu, amount, terminalId}
+```
+
+### 4.2 Autorizar — Idempotência (transação já existe)
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor POS as 🖥️ POS / Client
+    participant HF as 🔒 HMAC Filter
+    participant TC as 🎮 TransactionController
+    participant TS as ⚙️ TransactionService
+    participant DB as 🗄️ PostgreSQL
+    participant EPS as 🔄 ExternalPaymentServiceImpl
+
+    POS->>HF: POST /v1/pos/transactions/authorize\n(mesmo nsu + terminalId)
+    HF->>TC: Requisição válida
+    TC->>TS: authorize(nsu, terminalId, amount)
+    TS->>DB: SELECT por (terminalId, nsu)
+    DB-->>TS: FOUND — Transaction existente
+    Note over TS,EPS: EPS NÃO é chamado (idempotência)
+    TS-->>TC: AuthorizeResponse (mesmo transactionId)
+    TC-->>POS: 200 OK {transactionId} ← mesmo ID anterior
+```
+
+### 4.3 Confirmar — Caminho Feliz
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor POS as 🖥️ POS / Client
+    participant HF as 🔒 HMAC Filter
+    participant TC as 🎮 TransactionController
+    participant TS as ⚙️ TransactionService
+    participant DB as 🗄️ PostgreSQL
+    participant EPS as 🔄 ExternalPaymentServiceImpl
+    participant MOCK as 🏦 external-payment-mock
+
+    POS->>HF: POST /v1/pos/transactions/confirm\n{transactionId}
+    HF->>TC: Requisição válida
+    TC->>TS: confirm(transactionId)
+    TS->>DB: SELECT por transactionId
+    DB-->>TS: Transaction (status=AUTHORIZED)
+    TS->>EPS: confirm(transactionId)
+    EPS->>MOCK: POST /api/payment/confirm
+    MOCK-->>EPS: 200 OK {"status":"CONFIRMED"}
+    EPS-->>TS: Sucesso
+    TS->>DB: UPDATE status → CONFIRMED
+    DB-->>TS: Updated
+    TS-->>TC: void
+    TC-->>POS: 204 No Content
+```
+
+### 4.4 Confirmar — Idempotência (já confirmada)
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor POS as 🖥️ POS / Client
+    participant TC as 🎮 TransactionController
+    participant TS as ⚙️ TransactionService
+    participant DB as 🗄️ PostgreSQL
+    participant EPS as 🔄 ExternalPaymentServiceImpl
+
+    POS->>TC: POST /v1/pos/transactions/confirm\n{transactionId} (segunda vez)
+    TC->>TS: confirm(transactionId)
+    TS->>DB: SELECT por transactionId
+    DB-->>TS: Transaction (status=CONFIRMED)
+    Note over TS,EPS: EPS NÃO é chamado (no-op idempotente)
+    TS-->>TC: void (sem reprocessamento)
+    TC-->>POS: 204 No Content
+```
+
+### 4.5 Desfazer (Void) — Caminho Feliz
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor POS as 🖥️ POS / Client
+    participant HF as 🔒 HMAC Filter
+    participant TC as 🎮 TransactionController
+    participant TS as ⚙️ TransactionService
+    participant DB as 🗄️ PostgreSQL
+    participant EPS as 🔄 ExternalPaymentServiceImpl
+    participant MOCK as 🏦 external-payment-mock
+
+    POS->>HF: POST /v1/pos/transactions/void\n{nsu + terminalId}
+    HF->>TC: Requisição válida
+    TC->>TS: voidTransaction(nsu, terminalId)
+    TS->>DB: SELECT por (terminalId, nsu)
+    DB-->>TS: Transaction (status=AUTHORIZED ou CONFIRMED)
+    TS->>EPS: voidTransaction(transactionId)
+    EPS->>MOCK: POST /api/payment/void
+    MOCK-->>EPS: 200 OK {"status":"VOIDED"}
+    EPS-->>TS: Sucesso
+    TS->>DB: UPDATE status → VOIDED
+    DB-->>TS: Updated
+    TS-->>TC: void
+    TC-->>POS: 204 No Content
+```
+
+### 4.6 Desfazer (Void) — Idempotência (já desfeita)
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor POS as 🖥️ POS / Client
+    participant TC as 🎮 TransactionController
+    participant TS as ⚙️ TransactionService
+    participant DB as 🗄️ PostgreSQL
+    participant EPS as 🔄 ExternalPaymentServiceImpl
+
+    POS->>TC: POST /v1/pos/transactions/void\n{nsu + terminalId} (segunda vez)
+    TC->>TS: voidTransaction(nsu, terminalId)
+    TS->>DB: SELECT por (terminalId, nsu)
+    DB-->>TS: Transaction (status=VOIDED)
+    Note over TS,EPS: EPS NÃO é chamado (no-op idempotente)
+    TS-->>TC: void (sem reprocessamento)
+    TC-->>POS: 204 No Content
+```
+
+### 4.7 Segurança — Validação HMAC
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor POS as 🖥️ POS / Client
+    participant HF as 🔒 HMAC Filter
+    participant API as ⚙️ API (resto da cadeia)
+
+    Note over POS,HF: Cenário A — Assinatura inválida
+    POS->>HF: POST /authorize\nX-Timestamp: 1715000000\nX-Signature: assinatura-errada
+    HF->>HF: Recomputa HMAC(secret, timestamp.body)
+    HF->>HF: Comparação: hash calculado ≠ X-Signature
+    HF-->>POS: 401 Unauthorized\n{"error":"Invalid HMAC signature"}
+
+    Note over POS,HF: Cenário B — Timestamp expirado (replay attack)
+    POS->>HF: POST /authorize\nX-Timestamp: 1700000000 (> 5 min atrás)\nX-Signature: assinatura-válida-mas-antiga
+    HF->>HF: |now - X-Timestamp| > 300s → rejeitado
+    HF-->>POS: 401 Unauthorized\n{"error":"Timestamp out of valid window"}
+
+    Note over POS,API: Cenário C — Requisição legítima
+    POS->>HF: POST /authorize\nX-Timestamp: agora\nX-Signature: HMAC(secret, timestamp.body)
+    HF->>HF: Recomputa HMAC → igual a X-Signature ✔\nTimestamp dentro da janela ✔
+    HF->>API: Requisição autenticada → continua pipeline
+```
+
+### 4.8 Resiliência — Circuit Breaker Aberto
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor POS as 🖥️ POS / Client
+    participant TC as 🎮 TransactionController
+    participant TS as ⚙️ TransactionService
+    participant EPS as 🔄 ExternalPaymentServiceImpl\n(Resilience4j)
+    participant MOCK as 🏦 external-payment-mock
+
+    Note over EPS,MOCK: Mock indisponível (ex: docker-compose stop external-payment-mock)
+
+    POS->>TC: POST /authorize {nsu, amount, terminalId}
+    TC->>TS: authorize(...)
+    TS->>EPS: authorize(...)
+
+    loop Retry com backoff exponencial (máx. 3 tentativas)
+        EPS->>MOCK: POST /api/payment/authorize
+        MOCK--xEPS: ConnectionRefused / Timeout
+        EPS->>EPS: aguarda 500ms → 1s → 2s
+    end
+
+    EPS->>EPS: Circuit Breaker OPEN\n(≥ 50% de falhas na janela)
+    EPS-->>TS: CircuitBreakerOpenException (fallback)
+    TS-->>TC: CircuitBreakerOpenException
+    TC-->>POS: 503 Service Unavailable\n{"error":"Serviço externo indisponível"}
+
+    Note over EPS,MOCK: Após 30s, CB vai para HALF-OPEN
+    EPS->>MOCK: Testa com 3 chamadas
+    MOCK-->>EPS: 200 OK (mock restaurado)
+    EPS->>EPS: Circuit Breaker CLOSED ✔
+```
+
+### 4.9 Resiliência — Retry com Backoff Exponencial
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant EPS as 🔄 ExternalPaymentServiceImpl
+    participant MOCK as 🏦 external-payment-mock
+
+    EPS->>MOCK: Tentativa 1
+    MOCK--xEPS: IOException / Timeout
+    Note over EPS: aguarda 500ms
+
+    EPS->>MOCK: Tentativa 2
+    MOCK--xEPS: IOException / Timeout
+    Note over EPS: aguarda 1000ms (500ms × 2)
+
+    EPS->>MOCK: Tentativa 3
+    alt Sucesso
+        MOCK-->>EPS: 200 OK
+        EPS-->>EPS: Continua normalmente
+    else Falha definitiva
+        MOCK--xEPS: IOException
+        EPS-->>EPS: Lança exceção → fallback do Circuit Breaker
+    end
+```
+
+---
+
+## 5. Critérios de Aceite — Passo a Passo
 
 ### Pré-requisitos
 
@@ -225,7 +458,7 @@ SIGNATURE=$(echo -n "${TIMESTAMP}.${BODY}" | \
 
 ### Passo 5 — Fluxo completo: Autorizar → Confirmar → Void
 
-#### 5.1 Autorizar transação nova
+#### 5.1 Autorizar transação nova (veja [diagrama 4.1](#41-autorizar--transação-nova-caminho-feliz))
 
 ```bash
 curl -s -X POST http://localhost:8080/v1/pos/transactions/authorize \
@@ -250,7 +483,7 @@ Salve o `transactionId` retornado:
 TRANSACTION_ID="A1B2C3D4E5F60708..."
 ```
 
-#### 5.2 Idempotência na autorização
+#### 5.2 Idempotência na autorização (veja [diagrama 4.2](#42-autorizar--idempotência-transação-já-existe))
 
 Repita exatamente a mesma requisição — deve retornar o mesmo `transactionId`:
 
@@ -267,7 +500,7 @@ curl -s -X POST http://localhost:8080/v1/pos/transactions/authorize \
 # Esperado: "A1B2C3D4E5F60708..." (mesmo ID, sem duplicar)
 ```
 
-#### 5.3 Confirmar a transação
+#### 5.3 Confirmar a transação (veja [diagrama 4.3](#43-confirmar--caminho-feliz))
 
 ```bash
 CONFIRM_BODY="{\"transactionId\":\"${TRANSACTION_ID}\"}"
@@ -283,7 +516,7 @@ curl -s -o /dev/null -w "%{http_code}" \
 # Esperado: 204
 ```
 
-#### 5.4 Idempotência na confirmação
+#### 5.4 Idempotência na confirmação (veja [diagrama 4.4](#44-confirmar--idempotência-já-confirmada))
 
 ```bash
 # Repetição — deve retornar 204 sem reprocessar
@@ -299,7 +532,7 @@ curl -s -o /dev/null -w "%{http_code}" \
 # Esperado: 204
 ```
 
-#### 5.5 Desfazer transação por NSU + terminalId
+#### 5.5 Desfazer transação por NSU + terminalId (veja [diagrama 4.5](#45-desfazer-void--caminho-feliz))
 
 ```bash
 VOID_BODY='{"nsu":"123456","terminalId":"T-1000"}'
@@ -315,7 +548,7 @@ curl -s -o /dev/null -w "%{http_code}" \
 # Esperado: 204
 ```
 
-#### 5.6 Idempotência no void
+#### 5.6 Idempotência no void (veja [diagrama 4.6](#46-desfazer-void--idempotência-já-desfeita))
 
 ```bash
 # Repetição — deve retornar 204 sem reprocessar
@@ -338,7 +571,7 @@ curl -s -o /dev/null -w "%{http_code}" \
 curl -s http://localhost:8080/actuator/health | jq '.components.circuitBreakers'
 ```
 
-#### 5.8 Simular circuit breaker aberto (parar o mock)
+#### 5.8 Simular circuit breaker aberto (veja [diagrama 4.8](#48-resiliência--circuit-breaker-aberto))
 
 ```bash
 docker-compose stop external-payment-mock
@@ -362,47 +595,77 @@ docker-compose start external-payment-mock
 
 ---
 
-## 5. Segurança — HMAC SHA-256
+## 6. Segurança — HMAC SHA-256
 
 Cada requisição deve conter:
 
 | Header | Descrição |
 |---|---|
 | `X-Timestamp` | Unix timestamp em segundos (janela válida: ±5 minutos) |
-| `X-Signature` | HMAC-SHA256 hexadecimal de `timestamp.body` |
+| `X-Signature` | HMAC-SHA256 hexadecimal de `"${timestamp}.${body}"` |
 | `X-Correlation-Id` | Opcional; gerado automaticamente se ausente |
 
-**Proteções:**
+**Fórmula da assinatura:**
+```
+X-Signature = HEX( HMAC-SHA256( secret, "${X-Timestamp}.${requestBody}" ) )
+```
+
+**Proteções (veja [diagrama 4.7](#47-segurança--validação-hmac)):**
 - Requisições forjadas: sem a chave secreta não é possível gerar assinatura válida
 - Replay attacks: timestamp fora da janela de 5 minutos é rejeitado com `401`
 
 ---
 
-## 6. Idempotência Distribuída
+## 7. Idempotência Distribuída
 
 A idempotência é garantida por `UNIQUE CONSTRAINT (terminal_id, nsu)` no PostgreSQL — **sem estado local em memória**, seguro para múltiplos pods:
 
-```
-Pod 1 recebe: POST /authorize {nsu: "123", terminalId: "T-1"}  ──┐
-                                                                   ├─▶ PostgreSQL resolve
-Pod 2 recebe: POST /authorize {nsu: "123", terminalId: "T-1"}  ──┘    (constraint garante unicidade)
+```mermaid
+graph LR
+    Pod1["🖥️ Pod 1\nPOST /authorize\nnsu=123 terminalId=T-1"]
+    Pod2["🖥️ Pod 2\nPOST /authorize\nnsu=123 terminalId=T-1"]
+    DB[("🗄️ PostgreSQL\nUNIQUE(terminal_id, nsu)")]
+    Result["✅ Apenas 1 inserção\nConstraint garante unicidade"]
+
+    Pod1 --> DB
+    Pod2 --> DB
+    DB --> Result
 ```
 
 | Operação | Estado atual | Comportamento |
 |---|---|---|
 | `authorize` | Não existe | Cria nova transação (chama mock) |
 | `authorize` | Já existe | Retorna existente (sem chamar mock) |
-| `confirm` | `AUTHORIZED` | Confirma (chama mock) |
-| `confirm` | `CONFIRMED` | No-op — 204 |
-| `confirm` | `VOIDED` | Erro 422 |
-| `void` | `AUTHORIZED` ou `CONFIRMED` | Desfaz (chama mock) |
-| `void` | `VOIDED` | No-op — 204 |
+| `confirm` | `AUTHORIZED` | Confirma (chama mock) → status `CONFIRMED` |
+| `confirm` | `CONFIRMED` | No-op — `204` sem chamar mock |
+| `confirm` | `VOIDED` | Erro `422 Unprocessable Entity` |
+| `void` | `AUTHORIZED` ou `CONFIRMED` | Desfaz (chama mock) → status `VOIDED` |
+| `void` | `VOIDED` | No-op — `204` sem chamar mock |
 
 ---
 
-## 7. Resiliência — Anti-Cascade
+## 8. Resiliência — Anti-Cascade
 
-Toda comunicação com o `external-payment-mock` passa por 4 camadas de proteção:
+Toda comunicação com o `external-payment-mock` passa por 4 camadas de proteção (veja [diagramas 4.8](#48-resiliência--circuit-breaker-aberto) e [4.9](#49-resiliência--retry-com-backoff-exponencial)):
+
+```mermaid
+graph LR
+    EPS["🔄 ExternalPaymentServiceImpl"]
+
+    subgraph resilience["Resilience4j — camadas em ordem de execução"]
+        direction LR
+        BH["Bulkhead\n(≤10 concorrentes)"]
+        CB["Circuit Breaker\n(50% falhas → OPEN)"]
+        RT["Retry\n(3x, backoff exp.)"]
+        TL["TimeLimiter\n(3s timeout)"]
+        BH --> CB --> RT --> TL
+    end
+
+    MOCK["🏦 external-payment-mock"]
+
+    EPS --> BH
+    TL --> MOCK
+```
 
 ### Circuit Breaker
 
@@ -413,19 +676,17 @@ Toda comunicação com o `external-payment-mock` passa por 4 camadas de proteç�
 | `failureRateThreshold` | 50% | Abre com ≥ 50% de falhas |
 | `slowCallRateThreshold` | 80% | Conta chamadas > 2s como falha |
 | `waitDurationInOpenState` | 30s | Permanece aberto por 30s |
-| `permittedNumberOfCallsInHalfOpenState` | 3 | Testa com 3 chamadas |
+| `permittedNumberOfCallsInHalfOpenState` | 3 | Testa com 3 chamadas no HALF-OPEN |
 
 Quando **aberto**: retorna `503 Service Unavailable` imediatamente (fail-fast).
 
 ### Retry com Backoff Exponencial
 
-```
-Tentativa 1 ──▶ falha
-     aguarda 500ms
-Tentativa 2 ──▶ falha
-     aguarda 1s
-Tentativa 3 ──▶ falha ou sucesso
-```
+| Tentativa | Aguarda antes |
+|---|---|
+| 1ª | — |
+| 2ª | 500ms |
+| 3ª | 1000ms |
 
 Anti-retry storm: `CircuitBreakerOpenException` e erros de negócio **nunca geram retry**.
 
@@ -436,19 +697,15 @@ maxConcurrentCalls: 10    # Máximo simultâneo ao mock
 maxWaitDuration: 100ms    # Tempo máximo aguardando slot
 ```
 
-Protege o pool de threads quando o mock está lento.
-
 ### TimeLimiter
 
 ```yaml
 timeoutDuration: 3s       # Máximo por chamada ao mock
 ```
 
-Sem "pendurar" requisições indefinidamente.
-
 ---
 
-## 8. Observabilidade
+## 9. Observabilidade
 
 - **Correlation ID**: propagado via `X-Correlation-Id` em todos os logs (MDC) e headers de resposta
 - **Logs estruturados**: `[correlationId=abc-123] INFO TransactionService - [AUTHORIZE] ...`
@@ -459,7 +716,7 @@ Sem "pendurar" requisições indefinidamente.
 
 ---
 
-## 9. Como Executar
+## 10. Como Executar
 
 ### Build e start completo (recomendado)
 
@@ -501,7 +758,7 @@ mvn spring-boot:run
 
 ---
 
-## 10. Testes
+## 11. Testes
 
 ```bash
 # Todos os testes (unitários + BDD)
@@ -529,7 +786,7 @@ Os testes BDD usam WireMock (porta 8181) para interceptar as chamadas HTTP ao mo
 
 ---
 
-## 11. Collection Postman
+## 12. Collection Postman
 
 O arquivo `pos-transactions-collection.json` contém a collection completa com:
 
@@ -546,7 +803,7 @@ O arquivo `pos-transactions-collection.json` contém a collection completa com:
 
 ---
 
-## 12. Estrutura do Projeto
+## 13. Estrutura do Projeto
 
 ```
 pos-transactions/                        ← repositório raiz
