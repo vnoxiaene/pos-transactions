@@ -6,6 +6,7 @@ import com.pos.transactions.dto.AuthorizeRequest;
 import com.pos.transactions.dto.AuthorizeResponse;
 import com.pos.transactions.dto.ConfirmRequest;
 import com.pos.transactions.dto.VoidRequest;
+import com.pos.transactions.exception.InvalidRequestException;
 import com.pos.transactions.exception.InvalidTransactionStateException;
 import com.pos.transactions.exception.TransactionNotFoundException;
 import lombok.RequiredArgsConstructor;
@@ -115,8 +116,8 @@ public class TransactionService {
                             + " e nsu=" + request.getNsu()));
         }
 
-        throw new InvalidTransactionStateException(
-                "Informe transactionId ou (terminalId + nsu) para desfazer a transação.");
+        throw new InvalidRequestException(
+                "Informe transactionId ou o par (terminalId + nsu) para desfazer a transação.");
     }
 
     private Transaction findByTransactionId(String transactionId) {

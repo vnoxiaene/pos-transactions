@@ -6,6 +6,7 @@ import com.pos.transactions.dto.AuthorizeRequest;
 import com.pos.transactions.dto.AuthorizeResponse;
 import com.pos.transactions.dto.ConfirmRequest;
 import com.pos.transactions.dto.VoidRequest;
+import com.pos.transactions.exception.InvalidRequestException;
 import com.pos.transactions.exception.InvalidTransactionStateException;
 import com.pos.transactions.exception.TransactionNotFoundException;
 import com.pos.transactions.repository.TransactionRepository;
@@ -194,12 +195,13 @@ class TransactionServiceTest {
     }
 
     @Test
-    @DisplayName("Deve lançar exceção quando nem transactionId nem nsu+terminalId fornecidos")
-    void shouldThrowWhenNoIdentifierProvided() {
+    @DisplayName("Deve lançar InvalidRequestException (400) quando nem transactionId nem nsu+terminalId fornecidos")
+    void shouldThrowInvalidRequestWhenNoIdentifierProvided() {
         VoidRequest request = new VoidRequest();
 
         assertThatThrownBy(() -> transactionService.voidTransaction(request))
-                .isInstanceOf(InvalidTransactionStateException.class);
+                .isInstanceOf(InvalidRequestException.class)
+                .hasMessageContaining("transactionId ou o par (terminalId + nsu)");
     }
 
     private Transaction buildTransaction(String transactionId, TransactionStatus status) {

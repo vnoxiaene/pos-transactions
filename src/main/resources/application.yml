@@ -78,6 +78,7 @@ resilience4j:
           - org.springframework.web.client.ResourceAccessException
         ignoreExceptions:
           - com.pos.transactions.exception.CircuitBreakerOpenException
+          - com.pos.transactions.exception.InvalidRequestException
           - com.pos.transactions.exception.InvalidTransactionStateException
           - com.pos.transactions.exception.TransactionNotFoundException
   bulkhead:
@@ -85,13 +86,11 @@ resilience4j:
       externalPaymentApi:
         maxConcurrentCalls: 10
         maxWaitDuration: 100ms
-  timelimiter:
-    instances:
-      externalPaymentApi:
-        timeoutDuration: 3s
-        cancelRunningFuture: true
 
 external:
   payment:
     base-url: ${EXTERNAL_PAYMENT_URL:http://localhost:8081}
-    timeout: 3000
+    # Timeout em ms aplicado no HttpClient (connect + read).
+    # Substituí @TimeLimiter (requer CompletableFuture) por timeout nativo do HttpClient,
+    # mantendo a API síncrona conforme o contrato dos endpoints.
+    timeout-ms: ${EXTERNAL_PAYMENT_TIMEOUT_MS:3000}
