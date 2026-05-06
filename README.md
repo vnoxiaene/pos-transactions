@@ -1,6 +1,8 @@
-# POS Transactions API
+# POS Transactions Platform
 
-API HTTP cloud-native para processamento de transações POS (Point of Sale), construída com Java 17 e Spring Boot 3.3.x em arquitetura de microserviços.
+Plataforma cloud-native de microserviços para processamento de transações POS (Point of Sale), construída com Java 17 e Spring Boot 3.3.x em **monorepo Maven com 3 módulos independentes**.
+
+> **Referência arquitetural**: Veja [ARCHITECTURE.md](./ARCHITECTURE.md) para análise completa baseada em Domain-Driven Design (DDD), Bounded Contexts, e decisões de design.
 
 ---
 

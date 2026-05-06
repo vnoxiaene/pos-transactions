@@ -35,9 +35,9 @@ services:
       retries: 5
 
   # ─── API principal de transações POS ─────────────────────────────────────
-  pos-transactions:
+  pos-transactions-api:
     build:
-      context: .
+      context: ./pos-transactions-api
       dockerfile: Dockerfile
     container_name: pos-transactions-api
     depends_on:
@@ -49,8 +49,8 @@ services:
       DATABASE_URL: jdbc:postgresql://postgres:5432/pos_transactions
       DATABASE_USERNAME: pos_user
       DATABASE_PASSWORD: pos_password
-      HMAC_SECRET: my-super-secret-key-change-in-production
-      HMAC_ENABLED: "true"
+      SECURITY_HMAC_SECRET: my-super-secret-key-change-in-production
+      SECURITY_HMAC_ENABLED: "true"
       EXTERNAL_PAYMENT_URL: http://external-payment-mock:8081
       SPRING_PROFILES_ACTIVE: default
     ports:
