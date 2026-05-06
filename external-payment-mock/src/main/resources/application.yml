@@ -1,0 +1,19 @@
+spring:
+  application:
+    name: external-payment-mock
+
+server:
+  port: 8081
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: always
+
+logging:
+  level:
+    com.pos.external: DEBUG
