@@ -17,6 +17,11 @@ security:
     secret: test-secret-key-for-testing-only
     enabled: false
 
+# Aponta para o WireMock iniciado em WireMockConfig (porta 8181)
+external:
+  payment:
+    base-url: http://localhost:8181
+
 resilience4j:
   circuitbreaker:
     instances:
@@ -37,3 +42,4 @@ resilience4j:
     instances:
       externalPaymentApi:
         timeoutDuration: 10s
+

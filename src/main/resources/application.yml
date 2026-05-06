@@ -75,6 +75,7 @@ resilience4j:
         exponentialBackoffMultiplier: 2
         retryExceptions:
           - java.io.IOException
+          - org.springframework.web.client.ResourceAccessException
         ignoreExceptions:
           - com.pos.transactions.exception.CircuitBreakerOpenException
           - com.pos.transactions.exception.InvalidTransactionStateException
