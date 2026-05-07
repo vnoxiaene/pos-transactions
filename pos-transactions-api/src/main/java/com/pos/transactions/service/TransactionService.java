@@ -9,16 +9,20 @@ import com.pos.transactions.dto.VoidRequest;
 import com.pos.transactions.exception.InvalidRequestException;
 import com.pos.transactions.exception.InvalidTransactionStateException;
 import com.pos.transactions.exception.TransactionNotFoundException;
+import com.pos.transactions.repository.TransactionRepository;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.UUID;
 
+@Slf4j
 @Service
-    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(TODO.class);
+@RequiredArgsConstructor
 public class TransactionService {
 
-    private final com.pos.transactions.repository.TransactionRepository transactionRepository;
+    private final TransactionRepository transactionRepository;
     private final ExternalPaymentService externalPaymentService;
 
     @Transactional

@@ -3,6 +3,7 @@ package com.pos.transactions.service;
 import io.github.resilience4j.bulkhead.annotation.Bulkhead;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import io.github.resilience4j.retry.annotation.Retry;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Service;
@@ -11,18 +12,9 @@ import org.springframework.web.client.RestClient;
 import java.math.BigDecimal;
 
 /**
- * Cliente HTTP do microserviço externo de pagamentos (external-payment-mock).
- *
- * Toda chamada passa pelas camadas de resiliência do Resilience4j:
- *   - Bulkhead       : máximo 10 chamadas concorrentes (maxWaitDuration 100 ms)
- *   - CircuitBreaker : abre com >= 50% de falhas em janela de 10 requisições
- *   - Retry          : até 3 tentativas com backoff exponencial (500 ms → 1 s → 2 s)
- *   - Timeout        : connect + read timeout configurados no HttpClient (padrão: 3 s)
- *
- * O timeout é aplicado diretamente no HttpClient (SimpleClientHttpRequestFactory) para
- * garantir que chamadas síncronas não fiquem penduradas indefinidamente, sem necessidade
- * de CompletableFuture exigida pela anotação @TimeLimiter do Resilience4j.
+ * ...existing code...
  */
+@Slf4j
 @Service
 public class ExternalPaymentServiceImpl implements ExternalPaymentService {
 

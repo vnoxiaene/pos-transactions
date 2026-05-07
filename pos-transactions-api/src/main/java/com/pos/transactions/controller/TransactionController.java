@@ -6,11 +6,13 @@ import com.pos.transactions.dto.ConfirmRequest;
 import com.pos.transactions.dto.VoidRequest;
 import com.pos.transactions.service.TransactionService;
 import jakarta.validation.Valid;
+import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
 @RequestMapping("/v1/pos/transactions")
+@RequiredArgsConstructor
 public class TransactionController {
 
     private final TransactionService transactionService;

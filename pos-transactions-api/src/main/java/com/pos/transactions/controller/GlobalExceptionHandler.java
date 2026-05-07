@@ -5,6 +5,7 @@ import com.pos.transactions.exception.CircuitBreakerOpenException;
 import com.pos.transactions.exception.InvalidRequestException;
 import com.pos.transactions.exception.InvalidTransactionStateException;
 import com.pos.transactions.exception.TransactionNotFoundException;
+import lombok.extern.slf4j.Slf4j;
 import org.slf4j.MDC;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -16,6 +17,7 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import java.time.Instant;
 import java.util.List;
 
+@Slf4j
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 

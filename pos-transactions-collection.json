@@ -1,17 +1,20 @@
 {
   "info": {
     "name": "POS Transactions API - Dev Collection",
-    "description": "Collection para validar a cadeia completa de transações POS em ambiente de dev.\n\nCenários cobertos:\n1. Autorizar transação nova\n2. Idempotência na autorização\n3. Confirmar transação\n4. Idempotência na confirmação\n5. Void por transactionId\n6. Void por NSU + terminalId\n7. Idempotência no void\n8. Health check / Circuit Breaker status",
+    "description": "Collection para validar a cadeia completa de transações POS em ambiente de dev.\n\nArquitetura multi-módulo (3 microserviços):\n  • pos-transactions-api  — porta 8080 (Core API com HMAC-SHA256)\n  • external-payment-mock — porta 8081 (Simulador de adquirente, sem autenticação)\n  • auth-commons          — biblioteca JAR (sem HTTP, usada internamente pela API)\n\nCenários cobertos:\n1. Autorizar transação nova\n2. Idempotência na autorização\n3. Confirmar transação\n4. Idempotência na confirmação\n5. Void por transactionId\n6. Void por NSU + terminalId\n7. Idempotência no void\n8. Erros de negócio (404, 422)\n9. Health check / Circuit Breaker status\n10. External Payment Mock — chamadas diretas de diagnóstico",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
-    { "key": "baseUrl",       "value": "http://localhost:8080", "type": "string" },
-    { "key": "hmacSecret",    "value": "my-super-secret-key-change-in-production", "type": "string" },
-    { "key": "terminalId",    "value": "T-1000", "type": "string" },
-    { "key": "nsu",           "value": "", "type": "string" },
-    { "key": "transactionId", "value": "", "type": "string" },
-    { "key": "voidNsu",       "value": "", "type": "string" },
-    { "key": "voidTransactionId", "value": "", "type": "string" }
+    { "key": "baseUrl",          "value": "http://localhost:8080", "type": "string",
+      "description": "URL base do pos-transactions-api" },
+    { "key": "baseUrlMock",      "value": "http://localhost:8081", "type": "string",
+      "description": "URL base do external-payment-mock" },
+    { "key": "hmacSecret",       "value": "my-super-secret-key-change-in-production", "type": "string" },
+    { "key": "terminalId",       "value": "T-1000", "type": "string" },
+    { "key": "nsu",              "value": "", "type": "string" },
+    { "key": "transactionId",    "value": "", "type": "string" },
+    { "key": "voidNsu",          "value": "", "type": "string" },
+    { "key": "voidTransactionId","value": "", "type": "string" }
   ],
   "event": [
     {
@@ -19,16 +22,17 @@
       "script": {
         "type": "text/javascript",
         "exec": [
-          "// Gera HMAC-SHA256 para autenticação de cada requisição",
+          "// Gera HMAC-SHA256 para autenticação de cada requisição (pos-transactions-api).",
+          "// O external-payment-mock não valida HMAC, mas aceita os headers sem erro.",
           "const secret = pm.collectionVariables.get('hmacSecret');",
           "const timestamp = Math.floor(Date.now() / 1000).toString();",
           "const body = (pm.request.body && pm.request.body.raw) ? pm.request.body.raw : '';",
           "const payload = timestamp + '.' + body;",
           "const signature = CryptoJS.HmacSHA256(payload, secret).toString(CryptoJS.enc.Hex);",
-          "pm.request.headers.upsert({ key: 'X-Timestamp',    value: timestamp });",
-          "pm.request.headers.upsert({ key: 'X-Signature',    value: signature });",
+          "pm.request.headers.upsert({ key: 'X-Timestamp',      value: timestamp });",
+          "pm.request.headers.upsert({ key: 'X-Signature',      value: signature });",
           "pm.request.headers.upsert({ key: 'X-Correlation-Id', value: pm.variables.replaceIn('{{$guid}}') });",
-          "pm.request.headers.upsert({ key: 'Content-Type',   value: 'application/json' });"
+          "pm.request.headers.upsert({ key: 'Content-Type',     value: 'application/json' });"
         ]
       }
     }
@@ -131,6 +135,10 @@
                   "pm.test('Mensagem de erro presente', () => {",
                   "    const body = pm.response.json();",
                   "    pm.expect(body.message).to.exist;",
+                  "});",
+                  "pm.test('Detalhes de validação presentes', () => {",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(body.details).to.be.an('array').and.not.empty;",
                   "});"
                 ]
               }
@@ -209,13 +217,18 @@
           }
         },
         {
-          "name": "2.3 POST Confirm - Transação não encontrada",
+          "name": "2.3 POST Confirm - Transação não encontrada (404)",
           "event": [
             {
               "listen": "test",
               "script": {
                 "exec": [
-                  "pm.test('Status 404 Not Found', () => pm.response.to.have.status(404));"
+                  "pm.test('Status 404 Not Found', () => pm.response.to.have.status(404));",
+                  "pm.test('Mensagem de erro na resposta', () => {",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(body.error).to.exist;",
+                  "    pm.expect(body.message).to.exist;",
+                  "});"
                 ]
               }
             }
@@ -226,6 +239,47 @@
             "body": {
               "mode": "raw",
               "raw": "{\n  \"transactionId\": \"TXN-NAO-EXISTE-00000\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/pos/transactions/confirm",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "pos", "transactions", "confirm"]
+            }
+          }
+        },
+        {
+          "name": "2.4 POST Confirm - Transação VOIDED (422 Unprocessable)",
+          "description": "Tenta confirmar uma transação que já foi desfeita (VOIDED). Deve retornar 422 pois a transição VOIDED → CONFIRMED é inválida.",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "// Requer que a variável voidTransactionId esteja preenchida.",
+                  "// Execute o fluxo da seção 3 primeiro para ter um voidTransactionId disponível."
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 422 Unprocessable Entity', () => pm.response.to.have.status(422));",
+                  "pm.test('Mensagem de estado inválido', () => {",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(body.error).to.exist;",
+                  "    pm.expect(body.message).to.exist;",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"transactionId\": \"{{voidTransactionId}}\"\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/v1/pos/transactions/confirm",
@@ -395,13 +449,18 @@
           ]
         },
         {
-          "name": "3.4 POST Void - Transação não encontrada",
+          "name": "3.4 POST Void - Transação não encontrada (404)",
           "event": [
             {
               "listen": "test",
               "script": {
                 "exec": [
-                  "pm.test('Status 404 Not Found', () => pm.response.to.have.status(404));"
+                  "pm.test('Status 404 Not Found', () => pm.response.to.have.status(404));",
+                  "pm.test('Mensagem de erro na resposta', () => {",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(body.error).to.exist;",
+                  "    pm.expect(body.message).to.exist;",
+                  "});"
                 ]
               }
             }
@@ -419,11 +478,42 @@
               "path": ["v1", "pos", "transactions", "void"]
             }
           }
+        },
+        {
+          "name": "3.5 POST Void - Sem identificador (400 Bad Request)",
+          "description": "Void sem transactionId nem nsu+terminalId. Deve retornar 400.",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 400 Bad Request', () => pm.response.to.have.status(400));",
+                  "pm.test('Mensagem de erro na resposta', () => {",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(body.error).to.exist;",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/pos/transactions/void",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "pos", "transactions", "void"]
+            }
+          }
         }
       ]
     },
     {
-      "name": "4. Observabilidade e Resiliência",
+      "name": "4. Observabilidade e Resiliência (pos-transactions-api)",
       "item": [
         {
           "name": "4.1 GET Actuator Health",
@@ -455,7 +545,11 @@
               "listen": "test",
               "script": {
                 "exec": [
-                  "pm.test('Status 200', () => pm.response.to.have.status(200));"
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Circuit breaker externalPaymentApi presente', () => {",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(body.components).to.have.property('circuitBreakers');",
+                  "});"
                 ]
               }
             }
@@ -477,7 +571,11 @@
               "listen": "test",
               "script": {
                 "exec": [
-                  "pm.test('Status 200', () => pm.response.to.have.status(200));"
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Métricas presentes', () => {",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(body.names).to.be.an('array').and.not.empty;",
+                  "});"
                 ]
               }
             }
@@ -489,6 +587,136 @@
               "raw": "{{baseUrl}}/actuator/metrics",
               "host": ["{{baseUrl}}"],
               "path": ["actuator", "metrics"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "5. External Payment Mock (porta 8081)",
+      "description": "Chamadas diretas ao microserviço external-payment-mock para diagnóstico e validação de integração.\n\nEste serviço NÃO valida HMAC — é um simulador stateless de adquirente.\nEndpoints: POST /api/payment/authorize | /confirm | /void\nResposta padrão: { transactionId, status, processedAt }",
+      "item": [
+        {
+          "name": "5.1 GET Health Check (Mock)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Mock UP', () => pm.expect(pm.response.json().status).to.equal('UP'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrlMock}}/actuator/health",
+              "host": ["{{baseUrlMock}}"],
+              "path": ["actuator", "health"]
+            }
+          }
+        },
+        {
+          "name": "5.2 POST Payment Authorize (Mock direto)",
+          "description": "Chama o mock diretamente sem passar pelo pos-transactions-api. Útil para validar se o mock está no ar e respondendo corretamente.",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('Status AUTHORIZED na resposta', () => {",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(body.status).to.equal('AUTHORIZED');",
+                  "    pm.expect(body.transactionId).to.equal('MOCK-TXN-001');",
+                  "    pm.expect(body.processedAt).to.exist;",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"transactionId\": \"MOCK-TXN-001\",\n  \"terminalId\": \"T-1000\",\n  \"nsu\": \"NSU-MOCK-001\",\n  \"amount\": 150.00\n}"
+            },
+            "url": {
+              "raw": "{{baseUrlMock}}/api/payment/authorize",
+              "host": ["{{baseUrlMock}}"],
+              "path": ["api", "payment", "authorize"]
+            }
+          }
+        },
+        {
+          "name": "5.3 POST Payment Confirm (Mock direto)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('Status CONFIRMED na resposta', () => {",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(body.status).to.equal('CONFIRMED');",
+                  "    pm.expect(body.transactionId).to.equal('MOCK-TXN-001');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"transactionId\": \"MOCK-TXN-001\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrlMock}}/api/payment/confirm",
+              "host": ["{{baseUrlMock}}"],
+              "path": ["api", "payment", "confirm"]
+            }
+          }
+        },
+        {
+          "name": "5.4 POST Payment Void (Mock direto)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('Status VOIDED na resposta', () => {",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(body.status).to.equal('VOIDED');",
+                  "    pm.expect(body.transactionId).to.equal('MOCK-TXN-001');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"transactionId\": \"MOCK-TXN-001\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrlMock}}/api/payment/void",
+              "host": ["{{baseUrlMock}}"],
+              "path": ["api", "payment", "void"]
             }
           }
         }

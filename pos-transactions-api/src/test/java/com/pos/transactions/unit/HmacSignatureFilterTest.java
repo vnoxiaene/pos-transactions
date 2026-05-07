@@ -1,6 +1,7 @@
 package com.pos.transactions.unit;
 
-import com.pos.transactions.config.HmacSignatureFilter;
+import com.pos.auth.config.HmacSignatureFilter;
+import com.pos.auth.config.HmacSignatureProperties;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -22,9 +23,12 @@ class HmacSignatureFilterTest {
 
     @BeforeEach
     void setUp() {
+        HmacSignatureProperties properties = new HmacSignatureProperties();
+        properties.setSecret(SECRET);
+        properties.setEnabled(true);
+
         filter = new HmacSignatureFilter();
-        ReflectionTestUtils.setField(filter, "hmacSecret", SECRET);
-        ReflectionTestUtils.setField(filter, "hmacEnabled", true);
+        ReflectionTestUtils.setField(filter, "properties", properties);
     }
 
     @Test

@@ -1,9 +1,11 @@
 package com.pos.transactions.dto;
 
 import jakarta.validation.constraints.*;
+import lombok.Data;
 
 import java.math.BigDecimal;
 
+@Data
 public class AuthorizeRequest {
 
     @NotBlank(message = "nsu é obrigatório")
