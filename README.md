@@ -318,7 +318,7 @@ Configuracao aplicada nas chamadas HTTP para `external-payment-mock`:
 - Logging com padrao contendo `correlationId`
 - Actuator na API principal:
   - `GET /actuator/health`
-  - `GET /actuator/health/circuitBreakers`
+  - `GET /actuator/health/circuitbreakers`
   - `GET /actuator/metrics`
 
 No mock externo:
