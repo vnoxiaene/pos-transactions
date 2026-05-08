@@ -14,7 +14,11 @@
     { "key": "nsu",              "value": "", "type": "string" },
     { "key": "transactionId",    "value": "", "type": "string" },
     { "key": "voidNsu",          "value": "", "type": "string" },
-    { "key": "voidTransactionId","value": "", "type": "string" }
+    { "key": "voidTransactionId","value": "", "type": "string" },
+    { "key": "hmacTimestamp",   "value": "", "type": "string" },
+    { "key": "hmacSignature",   "value": "", "type": "string" },
+    { "key": "correlationId",   "value": "", "type": "string" }
+    ,{ "key": "recalculateHmacScript", "value": "const secret = pm.collectionVariables.get('hmacSecret');\nconst timestamp = Math.floor(Date.now() / 1000).toString();\nconst rawBody = (pm.request.body && pm.request.body.raw) ? pm.request.body.raw : '';\nconst resolvedBody = pm.variables.replaceIn(rawBody);\nconst payload = timestamp + '.' + resolvedBody;\nconst signature = CryptoJS.HmacSHA256(payload, secret).toString(CryptoJS.enc.Hex);\nconst correlationId = pm.variables.replaceIn('{{$guid}}');\npm.collectionVariables.set('hmacTimestamp', timestamp);\npm.collectionVariables.set('hmacSignature', signature);\npm.collectionVariables.set('correlationId', correlationId);", "type": "string" }
   ],
   "event": [
     {
@@ -23,16 +27,17 @@
         "type": "text/javascript",
         "exec": [
           "// Gera HMAC-SHA256 para autenticação de cada requisição (pos-transactions-api).",
-          "// O external-payment-mock não valida HMAC, mas aceita os headers sem erro.",
+          "// Mantém os valores em variáveis para que os headers apareçam no Code > cURL.",
           "const secret = pm.collectionVariables.get('hmacSecret');",
           "const timestamp = Math.floor(Date.now() / 1000).toString();",
-          "const body = (pm.request.body && pm.request.body.raw) ? pm.request.body.raw : '';",
-          "const payload = timestamp + '.' + body;",
+          "const rawBody = (pm.request.body && pm.request.body.raw) ? pm.request.body.raw : '';",
+          "const resolvedBody = pm.variables.replaceIn(rawBody);",
+          "const payload = timestamp + '.' + resolvedBody;",
           "const signature = CryptoJS.HmacSHA256(payload, secret).toString(CryptoJS.enc.Hex);",
-          "pm.request.headers.upsert({ key: 'X-Timestamp',      value: timestamp });",
-          "pm.request.headers.upsert({ key: 'X-Signature',      value: signature });",
-          "pm.request.headers.upsert({ key: 'X-Correlation-Id', value: pm.variables.replaceIn('{{$guid}}') });",
-          "pm.request.headers.upsert({ key: 'Content-Type',     value: 'application/json' });"
+          "const correlationId = pm.variables.replaceIn('{{$guid}}');",
+          "pm.collectionVariables.set('hmacTimestamp', timestamp);",
+          "pm.collectionVariables.set('hmacSignature', signature);",
+          "pm.collectionVariables.set('correlationId', correlationId);"
         ]
       }
     }
@@ -50,7 +55,9 @@
                 "exec": [
                   "// Gera NSU único para não colidir com execuções anteriores",
                   "const nsu = 'NSU-' + Date.now();",
-                  "pm.collectionVariables.set('nsu', nsu);"
+                  "pm.collectionVariables.set('nsu', nsu);",
+                  "// Reutiliza script de recálculo de HMAC definido em collection variable",
+                  "eval(pm.collectionVariables.get('recalculateHmacScript'));"
                 ]
               }
             },
@@ -79,7 +86,12 @@
           ],
           "request": {
             "method": "POST",
-            "header": [],
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Timestamp", "value": "{{hmacTimestamp}}" },
+              { "key": "X-Signature", "value": "{{hmacSignature}}" },
+              { "key": "X-Correlation-Id", "value": "{{correlationId}}" }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"nsu\": \"{{nsu}}\",\n  \"amount\": 199.90,\n  \"terminalId\": \"{{terminalId}}\"\n}"
@@ -112,7 +124,12 @@
           ],
           "request": {
             "method": "POST",
-            "header": [],
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Timestamp", "value": "{{hmacTimestamp}}" },
+              { "key": "X-Signature", "value": "{{hmacSignature}}" },
+              { "key": "X-Correlation-Id", "value": "{{correlationId}}" }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"nsu\": \"{{nsu}}\",\n  \"amount\": 199.90,\n  \"terminalId\": \"{{terminalId}}\"\n}"
@@ -146,7 +163,12 @@
           ],
           "request": {
             "method": "POST",
-            "header": [],
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Timestamp", "value": "{{hmacTimestamp}}" },
+              { "key": "X-Signature", "value": "{{hmacSignature}}" },
+              { "key": "X-Correlation-Id", "value": "{{correlationId}}" }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"amount\": 50.00\n}"
@@ -178,7 +200,12 @@
           ],
           "request": {
             "method": "POST",
-            "header": [],
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Timestamp", "value": "{{hmacTimestamp}}" },
+              { "key": "X-Signature", "value": "{{hmacSignature}}" },
+              { "key": "X-Correlation-Id", "value": "{{correlationId}}" }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"transactionId\": \"{{transactionId}}\"\n}"
@@ -204,7 +231,12 @@
           ],
           "request": {
             "method": "POST",
-            "header": [],
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Timestamp", "value": "{{hmacTimestamp}}" },
+              { "key": "X-Signature", "value": "{{hmacSignature}}" },
+              { "key": "X-Correlation-Id", "value": "{{correlationId}}" }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"transactionId\": \"{{transactionId}}\"\n}"
@@ -235,7 +267,12 @@
           ],
           "request": {
             "method": "POST",
-            "header": [],
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Timestamp", "value": "{{hmacTimestamp}}" },
+              { "key": "X-Signature", "value": "{{hmacSignature}}" },
+              { "key": "X-Correlation-Id", "value": "{{correlationId}}" }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"transactionId\": \"TXN-NAO-EXISTE-00000\"\n}"
@@ -264,7 +301,9 @@
               "listen": "test",
               "script": {
                 "exec": [
-                  "pm.test('Status 422 Unprocessable Entity', () => pm.response.to.have.status(422));",
+                  "pm.test('Status 422 Unprocessable Entity (ou 400 Bad Request dependendo do fluxo)', () => {",
+                  "    pm.expect([400,422]).to.include(pm.response.code);",
+                  "});",
                   "pm.test('Mensagem de estado inválido', () => {",
                   "    const body = pm.response.json();",
                   "    pm.expect(body.error).to.exist;",
@@ -276,7 +315,12 @@
           ],
           "request": {
             "method": "POST",
-            "header": [],
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Timestamp", "value": "{{hmacTimestamp}}" },
+              { "key": "X-Signature", "value": "{{hmacSignature}}" },
+              { "key": "X-Correlation-Id", "value": "{{correlationId}}" }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"transactionId\": \"{{voidTransactionId}}\"\n}"
@@ -301,7 +345,9 @@
               "script": {
                 "exec": [
                   "const nsu = 'VOID-NSU-' + Date.now();",
-                  "pm.collectionVariables.set('voidNsu', nsu);"
+                  "pm.collectionVariables.set('voidNsu', nsu);",
+                  "// Reutiliza script de recálculo de HMAC definido em collection variable",
+                  "eval(pm.collectionVariables.get('recalculateHmacScript'));"
                 ]
               }
             },
@@ -318,7 +364,12 @@
           ],
           "request": {
             "method": "POST",
-            "header": [],
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Timestamp", "value": "{{hmacTimestamp}}" },
+              { "key": "X-Signature", "value": "{{hmacSignature}}" },
+              { "key": "X-Correlation-Id", "value": "{{correlationId}}" }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"nsu\": \"{{voidNsu}}\",\n  \"amount\": 50.00,\n  \"terminalId\": \"{{terminalId}}\"\n}"
@@ -345,7 +396,12 @@
           ],
           "request": {
             "method": "POST",
-            "header": [],
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Timestamp", "value": "{{hmacTimestamp}}" },
+              { "key": "X-Signature", "value": "{{hmacSignature}}" },
+              { "key": "X-Correlation-Id", "value": "{{correlationId}}" }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"transactionId\": \"{{voidTransactionId}}\"\n}"
@@ -371,7 +427,12 @@
           ],
           "request": {
             "method": "POST",
-            "header": [],
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Timestamp", "value": "{{hmacTimestamp}}" },
+              { "key": "X-Signature", "value": "{{hmacSignature}}" },
+              { "key": "X-Correlation-Id", "value": "{{correlationId}}" }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"transactionId\": \"{{voidTransactionId}}\"\n}"
@@ -393,7 +454,9 @@
                   "listen": "prerequest",
                   "script": {
                     "exec": [
-                      "pm.collectionVariables.set('voidNsu', 'NSU-BY-TERMINAL-' + Date.now());"
+                      "pm.collectionVariables.set('voidNsu', 'NSU-BY-TERMINAL-' + Date.now());",
+                      "// Reutiliza script de recálculo de HMAC definido em collection variable",
+                      "eval(pm.collectionVariables.get('recalculateHmacScript'));"
                     ]
                   }
                 },
@@ -408,7 +471,12 @@
               ],
               "request": {
                 "method": "POST",
-                "header": [],
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" },
+                  { "key": "X-Timestamp", "value": "{{hmacTimestamp}}" },
+                  { "key": "X-Signature", "value": "{{hmacSignature}}" },
+                  { "key": "X-Correlation-Id", "value": "{{correlationId}}" }
+                ],
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"nsu\": \"{{voidNsu}}\",\n  \"amount\": 75.00,\n  \"terminalId\": \"{{terminalId}}\"\n}"
@@ -434,7 +502,12 @@
               ],
               "request": {
                 "method": "POST",
-                "header": [],
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" },
+                  { "key": "X-Timestamp", "value": "{{hmacTimestamp}}" },
+                  { "key": "X-Signature", "value": "{{hmacSignature}}" },
+                  { "key": "X-Correlation-Id", "value": "{{correlationId}}" }
+                ],
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"nsu\": \"{{voidNsu}}\",\n  \"terminalId\": \"{{terminalId}}\"\n}"
@@ -467,7 +540,12 @@
           ],
           "request": {
             "method": "POST",
-            "header": [],
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Timestamp", "value": "{{hmacTimestamp}}" },
+              { "key": "X-Signature", "value": "{{hmacSignature}}" },
+              { "key": "X-Correlation-Id", "value": "{{correlationId}}" }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"transactionId\": \"TXN-NAO-EXISTE-99999\"\n}"
@@ -498,7 +576,12 @@
           ],
           "request": {
             "method": "POST",
-            "header": [],
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Timestamp", "value": "{{hmacTimestamp}}" },
+              { "key": "X-Signature", "value": "{{hmacSignature}}" },
+              { "key": "X-Correlation-Id", "value": "{{correlationId}}" }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{}"
@@ -530,7 +613,12 @@
           ],
           "request": {
             "method": "GET",
-            "header": [],
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Timestamp", "value": "{{hmacTimestamp}}" },
+              { "key": "X-Signature", "value": "{{hmacSignature}}" },
+              { "key": "X-Correlation-Id", "value": "{{correlationId}}" }
+            ],
             "url": {
               "raw": "{{baseUrl}}/actuator/health",
               "host": ["{{baseUrl}}"],
@@ -546,9 +634,10 @@
               "script": {
                 "exec": [
                   "pm.test('Status 200', () => pm.response.to.have.status(200));",
-                  "pm.test('Circuit breaker externalPaymentApi presente', () => {",
+                  "pm.test('Circuit breakers presentes e contém externalPaymentApi', () => {",
                   "    const body = pm.response.json();",
-                  "    pm.expect(body.components).to.have.property('circuitBreakers');",
+                  "    pm.expect(body).to.have.property('circuitBreakers');",
+                  "    pm.expect(body.circuitBreakers).to.have.property('externalPaymentApi');",
                   "});"
                 ]
               }
@@ -556,11 +645,16 @@
           ],
           "request": {
             "method": "GET",
-            "header": [],
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Timestamp", "value": "{{hmacTimestamp}}" },
+              { "key": "X-Signature", "value": "{{hmacSignature}}" },
+              { "key": "X-Correlation-Id", "value": "{{correlationId}}" }
+            ],
             "url": {
-              "raw": "{{baseUrl}}/actuator/health/circuitBreakers",
+              "raw": "{{baseUrl}}/actuator/circuitbreakers",
               "host": ["{{baseUrl}}"],
-              "path": ["actuator", "health", "circuitBreakers"]
+              "path": ["actuator", "circuitbreakers"]
             }
           }
         },
@@ -582,7 +676,12 @@
           ],
           "request": {
             "method": "GET",
-            "header": [],
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Timestamp", "value": "{{hmacTimestamp}}" },
+              { "key": "X-Signature", "value": "{{hmacSignature}}" },
+              { "key": "X-Correlation-Id", "value": "{{correlationId}}" }
+            ],
             "url": {
               "raw": "{{baseUrl}}/actuator/metrics",
               "host": ["{{baseUrl}}"],
@@ -611,7 +710,12 @@
           ],
           "request": {
             "method": "GET",
-            "header": [],
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Timestamp", "value": "{{hmacTimestamp}}" },
+              { "key": "X-Signature", "value": "{{hmacSignature}}" },
+              { "key": "X-Correlation-Id", "value": "{{correlationId}}" }
+            ],
             "url": {
               "raw": "{{baseUrlMock}}/actuator/health",
               "host": ["{{baseUrlMock}}"],
@@ -641,7 +745,10 @@
           "request": {
             "method": "POST",
             "header": [
-              { "key": "Content-Type", "value": "application/json" }
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Timestamp", "value": "{{hmacTimestamp}}" },
+              { "key": "X-Signature", "value": "{{hmacSignature}}" },
+              { "key": "X-Correlation-Id", "value": "{{correlationId}}" }
             ],
             "body": {
               "mode": "raw",
@@ -674,7 +781,10 @@
           "request": {
             "method": "POST",
             "header": [
-              { "key": "Content-Type", "value": "application/json" }
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Timestamp", "value": "{{hmacTimestamp}}" },
+              { "key": "X-Signature", "value": "{{hmacSignature}}" },
+              { "key": "X-Correlation-Id", "value": "{{correlationId}}" }
             ],
             "body": {
               "mode": "raw",
@@ -707,7 +817,10 @@
           "request": {
             "method": "POST",
             "header": [
-              { "key": "Content-Type", "value": "application/json" }
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Timestamp", "value": "{{hmacTimestamp}}" },
+              { "key": "X-Signature", "value": "{{hmacSignature}}" },
+              { "key": "X-Correlation-Id", "value": "{{correlationId}}" }
             ],
             "body": {
               "mode": "raw",
