@@ -318,7 +318,7 @@ Configuracao aplicada nas chamadas HTTP para `external-payment-mock`:
 - Logging com padrao contendo `correlationId`
 - Actuator na API principal:
   - `GET /actuator/health`
-  - `GET /actuator/health/circuitbreakers`
+  - `GET /actuator/circuitbreakers`
   - `GET /actuator/metrics`
 
 No mock externo:
@@ -379,10 +379,10 @@ mvn -pl external-payment-mock spring-boot:run
 | `DATABASE_PASSWORD` | senha do banco |
 | `EXTERNAL_PAYMENT_URL` | URL do mock externo |
 | `EXTERNAL_PAYMENT_TIMEOUT_MS` | timeout HTTP da API para o mock |
-| `HMAC_SECRET` | chave HMAC (usada por placeholder em `application.yml`) |
-| `HMAC_ENABLED` | habilita/desabilita HMAC |
-| `SECURITY_HMAC_SECRET` | alternativa via binding Spring para `security.hmac.secret` |
-| `SECURITY_HMAC_ENABLED` | alternativa via binding Spring para `security.hmac.enabled` |
+ | `SECURITY_HMAC_SECRET` | chave HMAC (variável usada no `docker-compose` e mapeada para `security.hmac.secret`) |
+ | `SECURITY_HMAC_ENABLED` | habilita/desabilita HMAC (variável usada no `docker-compose` e mapeada para `security.hmac.enabled`) |
+ 
+ Nota: historicamente o projeto também mencionou `HMAC_SECRET` / `HMAC_ENABLED` como placeholders; a configuração atual no `docker-compose.yml` e nas propriedades Spring utiliza `SECURITY_HMAC_SECRET` e `SECURITY_HMAC_ENABLED`. É recomendado usar as variáveis `SECURITY_*` para consistência entre ambientes.
 
 ---
 
