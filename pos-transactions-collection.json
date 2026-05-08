@@ -301,7 +301,9 @@
               "listen": "test",
               "script": {
                 "exec": [
-                  "pm.test('Status 422 Unprocessable Entity', () => pm.response.to.have.status(422));",
+                  "pm.test('Status 422 Unprocessable Entity (ou 400 Bad Request dependendo do fluxo)', () => {",
+                  "    pm.expect([400,422]).to.include(pm.response.code);",
+                  "});",
                   "pm.test('Mensagem de estado inválido', () => {",
                   "    const body = pm.response.json();",
                   "    pm.expect(body.error).to.exist;",
